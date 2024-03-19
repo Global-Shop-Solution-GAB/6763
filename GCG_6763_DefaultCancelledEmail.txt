@@ -1,0 +1,6 @@
+YOUR PACKING LIST(S) %PACKINGLIST% FOR ORDER(S) %CUSTOMERPO% FROM SHIELDAG EQUIPMENT*!*
+Dear %CONTACTNAME%:*!*
+
+Your Packing List(s) %PACKINGLIST% for PO(s) %CUSTOMERPO% has been cancelled.*!*
+
+We look forward to doing business with you in the future.
