@@ -1,0 +1,8 @@
+YOUR PACKING LIST(S) %PACKINGLIST% FOR ORDER(S) %CUSTOMERPO% FROM SHIELDAG EQUIPMENT*!*
+Dear %CONTACTNAME%:*!*
+
+Your Packing List(s) %PACKINGLIST% for PO(s) %CUSTOMERPO% has shipped via %SHIPVIA%.*!*
+
+Tracking Number: %TRACKINGNUMBER%.*!*
+
+Thank you for your business.
