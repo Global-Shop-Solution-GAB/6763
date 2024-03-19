@@ -1,0 +1,151 @@
+﻿Program.Sub.Preflight.Start
+v.Global.sError.Declare(String)
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: Arturo Almaguer
+'Date: 19th May 2022
+'Customer: SHIELD INDUSTRIES, quote number 13435
+'This program sends a cancellation shipment email.
+'This script is launched off 26250 Delete Shipments Pre Delete hook
+
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+
+F.Intrinsic.Control.Try
+
+	V.Local.sPackingList.Declare(String)
+	V.Local.sFile.Declare(String)
+	V.Local.bExists.Declare(Boolean)
+	V.Local.sText.Declare(String)
+	V.Local.sSubject.Declare(String)
+	V.Local.sBody.Declare(String)
+	V.Local.sSQL.Declare(String)
+	V.Local.sCustPO.Declare(String)
+	V.Local.sContactName.Declare(String)
+	V.Local.sContactEmail.Declare(String)
+
+	'Getting and formatting packing list
+	F.Intrinsic.String.LPad(V.Passed.000003, "0", 7, V.Local.sPackingList)
+
+	'Validating whether default email txt file exists
+	F.Intrinsic.String.Build("{0}\GCG_6763_DefaultCancelledEmail.txt", V.Caller.GasDir, V.Local.sFile)
+	F.Intrinsic.File.Exists(V.Local.sFile,V.Local.bExists)
+	
+	F.Intrinsic.Control.If(V.Local.bExists,=,True)
+	
+		'Retrieving default text 
+		F.Intrinsic.File.File2String(V.Local.sFile,V.Local.sText)
+		
+		'Getting wildcard variables values
+		f.ODBC.Connection!Con.OpenCompanyConnection
+		F.Intrinsic.String.Build("select RTRIM(A.CUSTOMER_PO) CUSTPO, RTRIM(B.CONTACT) CONTACT, RTRIM(B.CONTACT_EMAIL) CONTACT_EMAIL from V_SHIPMENT_HEADER A LEFT JOIN V_SHIPMENT_BILLTO B on A.ORDER_NO = B.ORDER_NO and A.ORDER_SUFFIX = B.ORDER_SUFFIX where A.PCK_NO = '{0}';", V.Local.sPackingList, V.Local.sSQL)
+		F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSQL, V.Local.sSQL)
+		F.ODBC.Connection!Con.Close
+		
+		F.Intrinsic.Control.If(V.Ambient.ExecuteAndReturnEOF, =, False)
+				
+			'Splitting and setting variables
+			F.Intrinsic.String.Split(V.Local.sSQL, "*!*", V.Local.sSQL)
+			v.Local.sCustPO.Set(V.Local.sSQL(0))
+			v.Local.sContactName.Set(V.Local.sSQL(1))
+			v.Local.sContactEmail.Set(V.Local.sSQL(2))
+
+			'Replacing all wildcard variables with the actual value
+			F.Intrinsic.String.Replace(V.Local.sText,"%PACKINGLIST%",V.Local.sPackingList,V.Local.sText)
+			F.Intrinsic.String.Replace(V.Local.sText,"%CUSTOMERPO%",V.Local.sCustPO,V.Local.sText)
+			F.Intrinsic.String.Replace(V.Local.sText,"%CONTACTNAME%",V.Local.sContactName,V.Local.sText)
+			F.Intrinsic.String.Split(V.Local.sText, "*!*", V.Local.sText)
+			
+			'Setting the email's subject and body variables
+			V.Local.sSubject.Set(V.Local.sText(0))
+			F.Intrinsic.String.Build("{0}{1}{2}", V.Local.sText(1), V.Local.sText(2), V.Local.sText(3), V.Local.sBody)
+			
+			'Calling subroutine to queue email in courier table
+			F.Intrinsic.Control.CallSub("QueueEmail", "Subject", V.Local.sSubject, "Body", V.Local.sBody, "Email", V.Local.sContactEmail, "Name", V.Local.sContactName) 
+			
+		F.Intrinsic.Control.EndIf
+		
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.QueueEmail.Start
+'This subroutine queues the email so it can be later sent by Courier.
+'V.Args.Subject = Email's subject, V.Args.Body = Email's body, V.Args.Email = Contact email, V.Args.Name = contact name
+
+F.Intrinsic.Control.Try
+
+	V.Local.iUserID.Declare(Long)
+	V.Local.sSender.Declare(String)
+	V.Local.sSenderEmail.Declare(String)
+	V.Local.sSenderName.Declare(String)
+	V.Local.sSubject.Declare(String)
+	V.Local.sBody.Declare(String)
+	V.Local.sRecipient.Declare(String)
+	
+	'Getting User ID
+	F.Global.Security.GetUserID(V.Caller.User, V.Caller.CompanyCode, V.Local.iUserID)
+	
+	'Setting Subject
+	V.Local.sSubject.Set(V.Args.Subject)
+
+	'''Building sender parameter
+	'Get email address of GS User
+	F.Global.Security.GetUserEmail(V.Caller.User, V.Local.sSenderEmail)
+	
+	'Alert and end script if no email found for GS User
+	F.Intrinsic.control.If(V.Local.sSenderEmail,=,"")
+		F.Intrinsic.UI.Msgbox("Error in email procedure.  The GS User does not have an email address associated with it in User Security Maintenance.")
+		F.Intrinsic.Control.CallSub("FormEmail_UnLoad")
+	F.Intrinsic.Control.EndIf
+	
+	'Getting full name of GS User
+	F.Global.Security.GetFullName(V.Caller.User, V.Caller.CompanyCode, V.Local.sSenderName)
+	
+	'Settin Sender Info for Queue Message
+	f.Intrinsic.String.Concat(V.Local.sSenderEmail,"*!*", V.Local.sSenderName, V.Local.sSender)
+	'''
+	
+	'Building recipients parameter
+	F.Intrinsic.String.Build("{0}*!*{1}", V.Args.Name, V.Args.Email, V.Local.sRecipient)
+	
+	'Setting Body
+	V.Local.sBody.Set(V.Args.Body)
+	
+	'Creating message, which will be sent by courier. GCG_6763_C for cancellation emails.
+	F.Global.Messaging.QueueMessage(V.Caller.CompanyCode,V.Local.iUserID,"GCG_6763_C",V.Local.sSubject,V.Local.sSender, V.Local.sRecipient, V.Local.sBody,5,"",False,"","","","","","","","","","")
+
+F.Intrinsic.Control.Catch
+
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.QueueEmail.End
+
+Program.Sub.CatchError.Start
+'To display the error
+F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}", V.Ambient.ScriptPath, V.Ambient.Newline, V.Ambient.SubroutineCalledFrom, V.Ambient.ErrorNumber, V.Ambient.ErrorDescription, V.Ambient.GABVersion, V.Global.sError) 
+F.Intrinsic.UI.Msgbox(V.Global.sError)
+F.Intrinsic.Control.CallSub("Unload")
+Program.Sub.CatchError.End
+
+Program.Sub.Unload.Start
+'Closes the connection if it is open
+f.Intrinsic.Control.If(v.ODBC.con.exists,=,"1") 	
+    f.ODBC.Connection!Con.Close
+f.Intrinsic.Control.EndIf
+
+'Ending program
+F.Intrinsic.Control.End
+Program.Sub.Unload.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$apadilla$}$20220525112548562$}$Lag9STqBJOmNXSbd5+msRcBWPGz0aFqSzPePUG9qWbylsStyt5PwJ8z83WaZd9O8iuS0f10HazbBZD2HxxXblA==
+Program.Sub.Comments.End
